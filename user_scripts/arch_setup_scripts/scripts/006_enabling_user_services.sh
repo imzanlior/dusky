@@ -36,7 +36,6 @@ if [[ $EUID -eq 0 ]]; then
 fi
 
 # --- 2. Service Definition ---
-# Note: I have removed duplicates (hypridle) and ensured extensions are present.
 services=(
     "pipewire.socket"
     "pipewire-pulse.socket"
@@ -46,7 +45,7 @@ services=(
     "fumon.service"
     "gnome-keyring-daemon.service"
     "gnome-keyring-daemon.socket"
-    "hyprsunset.service"
+#    "hyprsunset.service"
 )
 
 # --- 3. Main Logic ---

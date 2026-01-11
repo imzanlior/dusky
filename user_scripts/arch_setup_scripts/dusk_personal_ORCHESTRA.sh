@@ -29,7 +29,7 @@ INSTALL_SEQUENCE=(
     "U | 015_aur_packages_user_services.sh"
     "S | 016_create_mount_directories.sh"
     "S | 017_pam_keyring.sh"
-    "U | 018_network_meter_service.sh"
+    "U | 018_copy_service_files.sh"
     "U | 019_battery_notify_service.sh"
     "U | 020_fc_cache_fv.sh"
     "U | 021_matugen_directories.sh"

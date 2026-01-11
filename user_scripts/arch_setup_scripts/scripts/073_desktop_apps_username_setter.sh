@@ -80,6 +80,7 @@ readonly TARGET_FILES=(
     "scale_down.desktop"
     "scale_up.desktop"
     "sysbench_benchmark.desktop"
+    "service_toggle.desktop"
     "tailscale_setup.desktop"
     "tailscale_uninstall.desktop"
     "volume_slider.desktop"

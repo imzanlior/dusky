@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Symlinks and enables the battery_notify service.
+# Installs and enables the battery_notify service.
 # -----------------------------------------------------------------------------
 # Script: install_battery_notify.sh
-# Description: Symlinks and enables the battery_notify service.
+# Description: Installs (copies) and enables the battery_notify service.
 # Environment: Arch Linux / Hyprland / UWSM
 # Author: DevOps Assistant
 # -----------------------------------------------------------------------------
@@ -23,7 +23,8 @@ readonly CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}"
 readonly SYSTEMD_USER_DIR="${CONFIG_DIR}/systemd/user"
 # Based on the specific command provided:
 readonly SOURCE_FILE="$HOME/user_scripts/battery/notify/${SERVICE_NAME}"
-readonly TARGET_LINK="${SYSTEMD_USER_DIR}/${SERVICE_NAME}"
+# Target is the file in the systemd directory
+readonly TARGET_FILE="${SYSTEMD_USER_DIR}/${SERVICE_NAME}"
 
 # --- Helper Functions ---
 log_info() {
@@ -77,12 +78,17 @@ main() {
     mkdir -p "$SYSTEMD_USER_DIR"
   fi
 
-  # 3. Execution: Create Symlink
-  # -n: Treat destination as a normal file if it is a directory (no dereference)
-  # -f: Force removal of existing destination files
-  # -s: Symbolic link
-  log_info "Linking service file..."
-  ln -nfs "$SOURCE_FILE" "$TARGET_LINK"
+  # 3. Execution: COPY instead of Symlink
+  # Use 'cp' to make it a permanent file.
+  # This prevents 'systemctl disable' from deleting it.
+  log_info "Installing service file (Copying)..."
+  
+  # CRITICAL FIX: Explicitly remove the target first.
+  # If the target is a symlink (from an old install), 'cp' will fail 
+  # saying "source and destination are the same file".
+  rm -f "$TARGET_FILE"
+  
+  cp -f "$SOURCE_FILE" "$TARGET_FILE"
 
   # 4. Systemd Registration
   log_info "Reloading systemd user daemon..."
