@@ -22,7 +22,7 @@ INSTALL_SEQUENCE=(
     "U | 008_changing_shell_zsh.sh"
     "S | 009_aur_paru_fallback_yay.sh"
 #    "S | 010_warp.sh"
-#    "U | 011_paru_packages_optional.sh"
+    "U | 011_paru_packages_optional.sh"
 #    "S | 012_battery_limiter_again_dusk.sh"
     "U | 013_paru_packages.sh"
     "S | 014_aur_packages_sudo_services.sh"

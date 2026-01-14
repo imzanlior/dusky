@@ -83,8 +83,8 @@ trim_var() {
 }
 
 check_environment() {
-    if [[ ! -t 0 ]]; then
-        log_err "This script requires an interactive terminal (TTY) on Stdin."
+    if [[ ! -t 0 || ! -t 2 ]]; then
+        log_err "This script requires an interactive terminal (TTY)."
         exit 1
     fi
 
