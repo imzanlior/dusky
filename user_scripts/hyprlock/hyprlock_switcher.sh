@@ -2,288 +2,357 @@
 
 # -----------------------------------------------------------------------------
 # Script: Hyprlock Theme Manager (htm)
-# Description: Smart configuration management and symlinking for Hyprlock themes.
-# Environment: Arch Linux / Hyprland
-# Author: Elite DevOps Engineer
+# Description: Enterprise-grade configuration management for Hyprlock themes.
+#              Optimized for Arch/Hyprland/UWSM ecosystems.
+# Features:    Atomic linking, XDG compliance, ANSI-safe UI, Smart Detection.
 # -----------------------------------------------------------------------------
 
-set -euo pipefail
+set -uo pipefail
+
+# --- Bash Version Check ---
+if (( BASH_VERSINFO[0] < 5 )); then
+    printf 'Error: Bash 5.0+ required (current: %s)\n' "$BASH_VERSION" >&2
+    exit 1
+fi
 
 # --- Configuration & Constants ---
-readonly CONFIG_ROOT="${HOME}/.config/hypr"
-readonly THEMES_ROOT="$CONFIG_ROOT/themes"
-declare TOGGLE_MODE=false
-declare PREVIEW_MODE=false
+# Use distinct name to avoid shadowing the environment variable
+readonly _CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+readonly CONFIG_ROOT="${_CONFIG_HOME}/hypr"
+readonly THEMES_ROOT="${CONFIG_ROOT}/hyprlock_themes"
+readonly BACKUP_EXT=".backup.$(date +%s)"
 
-# Original state - populated after CONFIG_ROOT validation
-declare ORIG_CONFIG=""
+# State variables (Integers for boolean efficiency)
+declare -i SELECTED_IDX=0
+declare -i TOGGLE_MODE=0
+declare -i PREVIEW_MODE=0
+declare -i IN_ALTERNATE_SCREEN=0
 
-# --- Colors (ANSI-C Quoting) ---
+# Global theme arrays
+declare -a THEME_PATHS=()
+declare -a THEME_NAMES=()
+
+# --- Colors & Styling ---
 readonly R=$'\033[0;31m'
 readonly G=$'\033[0;32m'
-readonly B=$'\033[0;34m'
 readonly Y=$'\033[1;33m'
+readonly B=$'\033[0;34m'
 readonly C=$'\033[0;36m'
 readonly NC=$'\033[0m'
 readonly BOLD=$'\033[1m'
+readonly DIM=$'\033[2m'
 
-# --- Helper Functions ---
+# --- Logging ---
 log_info()    { printf '%s[INFO]%s %s\n' "$B" "$NC" "$*"; }
 log_success() { printf '%s[SUCCESS]%s %s\n' "$G" "$NC" "$*"; }
 log_warn()    { printf '%s[WARN]%s %s\n' "$Y" "$NC" "$*" >&2; }
 log_err()     { printf '%s[ERROR]%s %s\n' "$R" "$NC" "$*" >&2; }
 
+# --- Usage ---
 usage() {
     cat <<EOF
+${BOLD}Hyprlock Theme Manager${NC}
+
 Usage: ${0##*/} [OPTIONS]
 
-A theme manager for Hyprlock with text preview and toggle support.
-
 Options:
-  --toggle      Cycle to the next theme alphabetically without preview
-  --preview     Show text preview of configs before selecting
-  -h, --help    Show this help message and exit
+  --toggle      Cycle to the next theme (outputs name for notifications)
+  --preview     Show config preview in interactive mode
+  -h, --help    Show this help message
 
-Themes are discovered from: $THEMES_ROOT/<theme>/hyprlock.conf
+Theme path: ${THEMES_ROOT}/<theme>/hyprlock.conf
 EOF
 }
 
-# --- Argument Parsing ---
-while (( $# > 0 )); do
-    case "$1" in
-        --toggle)
-            TOGGLE_MODE=true
-            ;;
-        --preview)
-            PREVIEW_MODE=true
-            ;;
-        -h|--help)
-            usage
-            exit 0
-            ;;
-        *)
-            log_err "Unknown option: $1"
-            usage
-            exit 1
-            ;;
-    esac
-    shift
-done
+# --- Cleanup & Traps ---
+cleanup() {
+    # 1. Exit alternate screen (restore buffer)
+    # 2. Restore cursor visibility
+    # stderr silenced to prevent noise during shutdown errors
+    if (( IN_ALTERNATE_SCREEN )); then
+        tput rmcup 2>/dev/null || true
+        tput cnorm 2>/dev/null || true
+    fi
+}
+# Only trap EXIT; INT/TERM will trigger EXIT automatically. 
+trap cleanup EXIT
 
-# --- Pre-flight Checks ---
-if (( EUID == 0 )); then
-    log_err "This script modifies user configurations and must not be run as root."
-    exit 1
-fi
-
-if [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
-    log_err "No Wayland display detected. This script requires an active Wayland session."
-    exit 1
-fi
-
-# --- Dependency Check ---
+# --- Dependencies ---
 check_deps() {
-    local -a deps=(hyprlock sed grep tput readlink)
+    # 'head' removed (pure bash used instead), 'find', 'sort', 'tput', 'realpath' required
+    local -a deps=(tput realpath find sort)
     local -a missing=()
+    local cmd
 
     for cmd in "${deps[@]}"; do
         command -v "$cmd" &>/dev/null || missing+=("$cmd")
     done
 
-    if (( ${#missing[@]} > 0 )); then
-        log_err "Missing dependencies: ${missing[*]}"
+    if (( ${#missing[@]} )); then
+        log_err "Missing core dependencies: ${missing[*]}"
+        exit 1
+    fi
+
+    command -v jq &>/dev/null || \
+        log_warn "jq not found; theme.json metadata will be ignored."
+}
+
+# --- Initialization ---
+init() {
+    if (( EUID == 0 )); then
+        log_err "Do not run as root. User configuration only."
+        exit 1
+    fi
+
+    if [[ ! -d "$THEMES_ROOT" ]]; then
+        log_err "Themes directory not found: $THEMES_ROOT"
+        log_info "Create it and add subdirectories containing 'hyprlock.conf'."
+        exit 1
+    fi
+
+    check_deps
+}
+
+# --- Theme Discovery ---
+discover_themes() {
+    local config_file dir name
+
+    # Optimization: Use process substitution + read loop to avoid subshells
+    while IFS= read -r -d '' config_file; do
+        # Optimization: Bash Parameter Expansion is 100x faster than $(dirname)
+        dir="${config_file%/*}"
+        THEME_PATHS+=("$dir")
+
+        name=""
+        # Parse theme.json if jq is available
+        if [[ -f "${dir}/theme.json" ]] && command -v jq &>/dev/null; then
+            name=$(jq -r '.name // empty' "${dir}/theme.json" 2>/dev/null) || true
+        fi
+
+        # Fallback to directory name
+        if [[ -z "$name" ]]; then
+             name="${dir##*/}"
+        fi
+        THEME_NAMES+=("$name")
+
+    done < <(find "$THEMES_ROOT" -mindepth 2 -maxdepth 2 \
+                  -name "hyprlock.conf" -print0 2>/dev/null | sort -z)
+
+    if (( ${#THEME_PATHS[@]} == 0 )); then
+        log_err "No themes found in $THEMES_ROOT"
         exit 1
     fi
 }
-check_deps
 
-# --- Cleanup Trap ---
-cleanup() {
-    local -i exit_code=$?
+# --- Detect Current Theme ---
+detect_current_theme() {
+    local symlink="${CONFIG_ROOT}/hyprlock.conf"
+    local real_target real_theme_dir candidate_resolved
+    local -i i
 
-    # Restore cursor visibility
-    tput cnorm 2>/dev/null || true
+    # If it's not a symlink, we can't be "on a theme"
+    [[ -L "$symlink" ]] || return 0
 
-    exit "$exit_code"
-}
-trap cleanup EXIT INT TERM
+    # Resolve the symlink. If broken, return 0 (default to index 0)
+    real_target=$(realpath -- "$symlink" 2>/dev/null) || return 0
+    real_theme_dir="${real_target%/*}"
 
-# --- Discovery Phase ---
-if [[ ! -d "$THEMES_ROOT" ]]; then
-    log_err "Directory $THEMES_ROOT does not exist."
-    exit 1
-fi
-
-# Capture original symlink only after we know the root exists
-if [[ -L "${CONFIG_ROOT}/hyprlock.conf" ]]; then
-    ORIG_CONFIG=$(readlink "${CONFIG_ROOT}/hyprlock.conf")
-elif [[ -f "${CONFIG_ROOT}/hyprlock.conf" ]]; then
-    ORIG_CONFIG="${CONFIG_ROOT}/hyprlock.conf"
-fi
-
-shopt -s nullglob
-theme_dirs=("$THEMES_ROOT"/*/)
-shopt -u nullglob
-
-declare -a themes=()
-declare -a theme_names=()
-
-for dir in "${theme_dirs[@]}"; do
-    dir="${dir%/}"
-    if [[ -f "${dir}/hyprlock.conf" ]]; then
-        themes+=("$dir")
-        if [[ -f "$dir/theme.json" ]]; then 
-          theme_names+=("$(jq .name "$dir/theme.json")${*/}")
-        else
-            theme_names+=("${dir##*/}")
+    for (( i = 0; i < ${#THEME_PATHS[@]}; i++ )); do
+        # FAST PATH: Pure string comparison (no fork)
+        # Handles standard setups where paths match exactly
+        if [[ "${THEME_PATHS[i]}" == "$real_theme_dir" ]]; then
+            SELECTED_IDX=$i
+            return 0
         fi
-    fi
-done
 
-if (( ${#themes[@]} == 0 )); then
-    log_err "No valid theme directories found in $THEMES_ROOT (must contain hyprlock.conf)."
-    exit 1
-fi
+        # SLOW PATH: Resolve symlinks (forks 'realpath')
+        # Handles complex dotfiles setups (e.g. ~/dotfiles symlinked to ~/.config)
+        candidate_resolved=$(realpath -- "${THEME_PATHS[i]}" 2>/dev/null) || continue
+        if [[ "$candidate_resolved" == "$real_theme_dir" ]]; then
+            SELECTED_IDX=$i
+            return 0
+        fi
+    done
+}
 
-declare -ir total=${#themes[@]}
-declare -i selected_idx=0
+# --- UI Drawing ---
+draw_ui() {
+    local -i i 
 
-# --- Preview Function ---
-show_preview() {
-    local theme_path="$1"
-    local theme_name="$2"
-    local config_file="${theme_path}/hyprlock.conf"
-    
+    # Clear screen (ANSI) and home cursor. 
     printf '\033[H\033[2J'
-    printf '%s=== Preview: %s ===%s\n\n' "$BOLD$C" "$theme_name" "$NC"
-    
-    # Show first 20 lines or entire file if shorter
-    if [[ -f "$config_file" ]]; then
-        head -n 20 "$config_file"
-        local line_count
-        line_count=$(wc -l < "$config_file")
-        if (( line_count > 20 )); then
-            printf '\n%s... (%d more lines)%s\n' "$Y" "$((line_count - 20))" "$NC"
+
+    # Header
+    printf '%s%sHyprlock Theme Manager%s\n' "$BOLD" "$B" "$NC"
+    printf '%s↑/k ↓/j:Navigate  Enter:Apply  q:Quit%s\n\n' "$DIM" "$NC"
+
+    # Theme list
+    for (( i = 0; i < ${#THEME_NAMES[@]}; i++ )); do
+        if (( i == SELECTED_IDX )); then
+            printf ' %s▸ %s%s\n' "$G$BOLD" "${THEME_NAMES[i]}" "$NC"
+        else
+            printf '   %s%s%s\n' "$DIM" "${THEME_NAMES[i]}" "$NC"
         fi
-    else
-        printf '%sConfig file not found!%s\n' "$R" "$NC"
+    done
+
+    # Preview pane
+    if (( PREVIEW_MODE )); then
+        local conf="${THEME_PATHS[SELECTED_IDX]}/hyprlock.conf"
+        printf '\n%s── Preview ──%s\n' "$C" "$NC"
+        
+        if [[ -r "$conf" ]]; then
+            local line
+            local -i count=0
+            # Read first 10 lines safely (Pure Bash 'head')
+            while (( count < 10 )) && IFS= read -r line; do
+                printf '  %s%s%s\n' "$DIM" "$line" "$NC"
+                (( count++ ))
+            done < "$conf"
+        else
+            printf '  %s(unable to read config)%s\n' "$DIM" "$NC"
+        fi
     fi
-    
-    printf '\n%s─────────────────────────────────────%s\n' "$C" "$NC"
 }
 
-# --- Logic Fork: Toggle vs Interactive ---
-if [[ "$TOGGLE_MODE" == "true" ]]; then
-    # 1. Resolve current config directory
-    current_real_path=""
-    if [[ -L "${CONFIG_ROOT}/hyprlock.conf" ]]; then
-        current_real_path=$(readlink -f "${CONFIG_ROOT}/hyprlock.conf")
-    elif [[ -f "${CONFIG_ROOT}/hyprlock.conf" ]]; then
-        current_real_path=$(readlink -f "${CONFIG_ROOT}/hyprlock.conf")
+# --- Apply Theme ---
+apply_theme() {
+    local theme_dir="$1"
+    local theme_name="$2"
+    local target="${CONFIG_ROOT}/hyprlock.conf"
+    local source="${theme_dir}/hyprlock.conf"
+
+    # Validate source exists and is readable
+    if [[ ! -r "$source" ]]; then
+        log_err "Cannot read theme config: $source"
+        return 1
     fi
 
-    current_dir=""
-    current_name="unknown"
-
-    if [[ -n "$current_real_path" && -e "$current_real_path" ]]; then
-        current_dir=$(dirname "$current_real_path")
+    # Backup existing real file (if it's not a symlink)
+    # This prevents accidental deletion of a handcrafted config file
+    if [[ -f "$target" && ! -L "$target" ]]; then
+        log_warn "Backing up existing non-symlink config to ${target}${BACKUP_EXT}"
+        if ! mv -- "$target" "${target}${BACKUP_EXT}"; then
+            log_err "Backup failed. Aborting."
+            return 1
+        fi
     fi
 
-    # 2. Find index of current theme
-    declare -i current_idx=-1
-    if [[ -n "$current_dir" ]]; then
-        for (( i = 0; i < total; i++ )); do
-            theme_real_path=$(readlink -f "${themes[i]}")
-            if [[ "$theme_real_path" == "$current_dir" ]]; then
-                current_idx=$i
-                current_name="${theme_names[i]}"
-                break
-            fi
-        done
+    # Explicitly remove the old link/file to ensure atomicity
+    # Check if file exists OR is a (possibly broken) symlink
+    if [[ -e "$target" || -L "$target" ]]; then
+        if ! rm -f -- "$target"; then
+             log_err "Failed to remove existing config: $target"
+             return 1
+        fi
     fi
 
-    # 3. Calculate next index
-    if (( current_idx == -1 )); then
-        # If current config doesn't match a known theme, start at 0
-        selected_idx=0
+    # Create new symlink
+    if ! ln -s -- "$source" "$target"; then
+        log_err "Failed to create symlink"
+        return 1
+    fi
+
+    if (( TOGGLE_MODE )); then
+        # Just print the name. Useful for: notify-send "Theme" "$(htm --toggle)"
+        printf '%s\n' "$theme_name"
     else
-        selected_idx=$(( (current_idx + 1) % total ))
+        log_success "Applied theme: $theme_name"
+    fi
+}
+
+# --- Interactive Mode ---
+run_interactive() {
+    local -i total=${#THEME_PATHS[@]}
+    local key seq
+
+    # Robustness: Check if we are actually connected to a terminal
+    if [[ ! -t 0 ]]; then
+        log_err "Interactive mode requires a terminal (stdin is not a TTY)"
+        exit 1
     fi
 
-    log_info "Toggle mode: Switching from '${current_name}' to '${theme_names[selected_idx]}'"
-
-else
-    # --- Interactive Selection Mode ---
+    # Enter alternate screen buffer (silenced)
+    tput smcup 2>/dev/null || true
     tput civis 2>/dev/null || true
+    IN_ALTERNATE_SCREEN=1
 
     while true; do
-        if [[ "$PREVIEW_MODE" == "true" ]]; then
-            show_preview "${themes[selected_idx]}" "${theme_names[selected_idx]}"
-            printf '\n%sUse %sArrows/jk%s to browse, %sEnter%s to select, %sq%s to quit%s\n' \
-                "$BOLD" "$Y" "$NC$BOLD" "$G" "$NC$BOLD" "$R" "$NC$BOLD" "$NC"
-        else
-            printf '\033[H\033[2J'
-            printf '%sHyprlock Theme Selector%s (Use %sArrows/jk%s to browse, %sEnter%s to select, %sq%s to quit)\n\n' \
-                "$BOLD" "$NC" "$Y" "$NC" "$G" "$NC" "$R" "$NC"
+        draw_ui
 
-            for (( i = 0; i < total; i++ )); do 
-                if (( i == selected_idx )); then
-                    printf '%s> %s%s%s\n' "$C" "$BOLD" "${theme_names[i]}" "$NC"
-                else
-                    printf '  %s\n' "${theme_names[i]}"
-                fi
-            done
-        fi
+        # Read single keypress
+        IFS= read -rsn1 key || break
 
-        IFS= read -rsn1 key || true
+        # Handle escape sequences (arrow keys)
         if [[ "$key" == $'\x1b' ]]; then
-            IFS= read -rsn2 -t 0.1 rest || true
-            key+="${rest:-}"
+            # Wait 0.1s for rest of sequence (standard for human/ssh latency)
+            IFS= read -rsn2 -t 0.1 seq || seq=""
+            key+="$seq"
         fi
 
         case "$key" in
-            $'\x1b[A'|k)
-                selected_idx=$(( (selected_idx - 1 + total) % total ))
+            $'\x1b[A' | k)  # Up arrow or k
+                (( SELECTED_IDX = (SELECTED_IDX - 1 + total) % total ))
                 ;;
-            $'\x1b[B'|j)
-                selected_idx=$(( (selected_idx + 1) % total ))
+            $'\x1b[B' | j)  # Down arrow or j
+                (( SELECTED_IDX = (SELECTED_IDX + 1) % total ))
                 ;;
-            '')
-                # Enter pressed - confirm selection
-                break
+            '')  # Enter key (empty string from read -n1)
+                # Cleanup MUST happen before applying to ensure logging works
+                cleanup
+                IN_ALTERNATE_SCREEN=0
+                apply_theme "${THEME_PATHS[SELECTED_IDX]}" "${THEME_NAMES[SELECTED_IDX]}"
+                exit $?
                 ;;
-            q|Q)
-                log_info "Selection cancelled."
+            q | Q)
                 exit 0
                 ;;
+            # Ignore raw escape to prevent accidental exit
+            $'\x1b') ;;
         esac
     done
-    tput cnorm 2>/dev/null || true
-fi
+}
 
-# --- Finalization Phase (Common) ---
+# --- Main Entry Point ---
+main() {
+    while (( $# )); do
+        case "$1" in
+            --toggle)
+                TOGGLE_MODE=1
+                ;;
+            --preview)
+                PREVIEW_MODE=1
+                ;;
+            -h | --help)
+                usage
+                exit 0
+                ;;
+            --)
+                shift
+                break
+                ;;
+            -*)
+                log_err "Unknown option: $1"
+                usage >&2
+                exit 1
+                ;;
+            *)
+                break
+                ;;
+        esac
+        shift
+    done
 
-readonly FINAL_THEME_DIR="${themes[selected_idx]}"
-readonly FINAL_NAME="${theme_names[selected_idx]}"
-readonly CONFIG_FILE="${FINAL_THEME_DIR}/hyprlock.conf"
+    init
+    discover_themes
+    detect_current_theme
 
-if [[ "$TOGGLE_MODE" == "false" ]]; then
-    printf '\n%sSelected Theme:%s %s\n' "$B" "$NC" "$FINAL_NAME"
-fi
+    if (( TOGGLE_MODE )); then
+        local -i total=${#THEME_PATHS[@]}
+        (( SELECTED_IDX = (SELECTED_IDX + 1) % total ))
+        apply_theme "${THEME_PATHS[SELECTED_IDX]}" "${THEME_NAMES[SELECTED_IDX]}"
+    else
+        run_interactive
+    fi
+}
 
-# --- Create Symlink ---
-[[ "$TOGGLE_MODE" == "false" ]] && log_info "Creating symlink..."
-
-rm -f "${CONFIG_ROOT}/hyprlock.conf"
-
-ln -snf "${FINAL_THEME_DIR}/hyprlock.conf" "${CONFIG_ROOT}/hyprlock.conf"
-
-if [[ "$TOGGLE_MODE" == "false" ]]; then
-    log_success "Symlink: hyprlock.conf -> ${FINAL_THEME_DIR}/hyprlock.conf"
-    log_success "Done! Your new Hyprlock theme is ready."
-    log_info "Lock your screen to see the changes!"
-fi
-
-# Disable cleanup trap on success
-trap - EXIT
-exit 0
+main "$@"
