@@ -64,6 +64,7 @@ readonly TARGET_FILES=(
     "file_switcher.desktop"
     "hypridle_timeout.desktop"
     "hypridle_toggle.desktop"
+    "hyprlock_switcher.desktop"
     "hyprsunset_slider.desktop"
     "IO_Monitor.desktop"
     "iphone_vnc.desktop"
