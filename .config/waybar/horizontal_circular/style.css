@@ -1,0 +1,279 @@
+/* * RELATIVE PATH IMPORT
+ * Goes up two levels from ~/.config/waybar/style.css to ~/.config/
+ * then down to matugen/generated/waybar-colors.css
+ */
+@import url("../../.config/matugen/generated/waybar-colors.css");
+
+/* * COLOR MAPPING 
+ * Connecting Matugen variables to the theme's logic 
+ */
+@define-color background @surface;
+@define-color foreground @on_surface;
+
+/* Mapping pywal indices to Matugen roles for consistent theming */
+@define-color color1 @primary;           /* Main Accent */
+@define-color color2 @tertiary;          /* Secondary Accent */
+@define-color color3 @secondary;         /* Alt Accent */
+@define-color color4 @error;             /* Critical/Urgent */
+@define-color color5 @primary_container; /* Containers */
+@define-color color6 @on_primary;        /* Text on accents */
+
+* {
+    border: none;
+    border-radius: 0px;
+    font-family: "JetBrainsMono Nerd Font", "Noto Sans", sans-serif;
+    font-weight: 600;
+    min-height: 0;
+    padding: 0;
+    margin: 0;
+    font-size: 13px;
+}
+
+window#waybar {
+    background: transparent; /* Fixes the "ugly black thing" */
+}
+
+tooltip {
+    background: @surface_container;
+    border: 2px solid @primary;
+    border-radius: 16px;
+}
+
+tooltip label {
+    color: @on_surface;
+    padding: 8px 12px;
+    font-size: 13px;
+}
+
+/* ============================================================ */
+/* WORKSPACES                                                  */
+/* ============================================================ */
+#workspaces {
+    background-color: @surface_container;
+    padding: 5px 14px;
+    margin: 0 6px;
+    border-radius: 20px;
+    border: 2px solid @primary;
+    color: @on_surface;
+}
+
+#workspaces button {
+    padding: 0px;
+    margin: 0px 3px;
+    border-radius: 45px;
+    color: transparent;
+    background-color: @primary;
+    transition: all 0.3s ease-in-out;
+}
+
+#workspaces button.active {
+    background-color: @error;
+    color: @background;
+    min-width: 40px;
+    font-size: 12px;
+}
+
+#workspaces button:hover {
+    background-color: @primary_container;
+    color: @on_primary_container;
+    border-radius: 16px;
+    min-width: 35px;
+}
+
+#workspaces button.urgent {
+    background-color: @error;
+    color: @on_error;
+    border-radius: 16px;
+    min-width: 40px;
+}
+
+/* ============================================================ */
+/* MODULES BASE                                                */
+/* ============================================================ */
+#battery,
+#pulseaudio,
+#network,
+#bluetooth,
+#clock,
+#custom-notification,
+#custom-arch,
+#custom-lock,
+#custom-logout,
+#custom-reboot,
+#custom-shutdown,
+#temperature.cpu,
+#temperature.system,
+#custom-gpu,
+#backlight {
+    background-color: @surface_container;
+    border-radius: 20px;
+    border: 2px solid @primary;
+    padding: 5px 14px;
+    margin: 0 6px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    color: @on_surface;
+}
+
+/* ============================================================ */
+/* POWER GROUP                                                 */
+/* ============================================================ */
+#group-power {
+    background-color: transparent;
+    padding: 0;
+    margin: 0 6px 0 0;
+}
+
+#custom-arch {
+    color: @primary;
+    font-size: 16px;
+    margin: 0 6px;
+    padding: 5px 14px;
+}
+
+#custom-arch:hover {
+    background-color: @primary;
+    color: @background;
+    border-color: @primary;
+}
+
+#custom-lock,
+#custom-logout,
+#custom-reboot,
+#custom-shutdown {
+    font-size: 14px;
+    margin: 0 6px;
+    padding: 5px 12px;
+    color: @error;
+}
+
+#custom-lock:hover,
+#custom-logout:hover,
+#custom-reboot:hover,
+#custom-shutdown:hover {
+    background-color: @error;
+    color: @on_error;
+    border-color: @error;
+}
+
+/* ============================================================ */
+/* TEMPS GROUP                                                 */
+/* ============================================================ */
+#group-temps {
+    background-color: transparent;
+    margin: 0 6px 0 0;
+    padding: 0;
+}
+
+#temperature.cpu { color: @primary; }
+#custom-gpu { color: @secondary; }
+#temperature.system { color: @tertiary; }
+
+#temperature.cpu:hover {
+    background-color: @primary;
+    color: @background;
+}
+#custom-gpu:hover {
+    background-color: @secondary;
+    color: @background;
+}
+#temperature.system:hover {
+    background-color: @tertiary;
+    color: @background;
+}
+
+#temperature.critical {
+    background-color: @error;
+    color: @on_error;
+    border-color: @error;
+}
+
+/* ============================================================ */
+/* CLOCK                                                       */
+/* ============================================================ */
+#clock {
+    color: @primary;
+    margin: 0 6px;
+    padding: 5px 20px;
+    font-size: 16px;
+    font-weight: 800;
+}
+
+#clock:hover {
+    background-color: @primary;
+    color: @background;
+}
+
+/* ============================================================ */
+/* SYSTEM INDICATORS                                           */
+/* ============================================================ */
+#backlight { color: @secondary; }
+#backlight:hover {
+    background-color: @secondary;
+    color: @background;
+}
+
+#pulseaudio { color: @secondary; }
+#pulseaudio:hover {
+    background-color: @secondary;
+    color: @background;
+}
+#pulseaudio.muted {
+    color: @outline;
+}
+
+#network { color: @primary_container; }
+#network:hover {
+    background-color: @primary_container;
+    color: @on_primary_container;
+}
+#network.disconnected {
+    color: @error;
+    border-color: @error;
+}
+
+#bluetooth { color: @primary; }
+#bluetooth:hover {
+    background-color: @primary;
+    color: @background;
+}
+#bluetooth.disabled {
+    color: @outline;
+    border-color: @outline;
+}
+
+#battery { color: @tertiary; }
+#battery:hover {
+    background-color: @tertiary;
+    color: @background;
+}
+#battery.warning {
+    color: @secondary;
+    border-color: @secondary;
+}
+#battery.critical {
+    color: @error;
+    border-color: @error;
+    animation-name: blink;
+    animation-duration: 0.5s;
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+    animation-direction: alternate;
+}
+#battery.charging {
+    color: @on_primary;
+    background-color: @primary;
+    border-color: @primary;
+}
+
+#custom-notification { color: @on_surface; }
+#custom-notification:hover {
+    background-color: @on_surface;
+    color: @surface;
+}
+
+@keyframes blink {
+    to {
+        background-color: @on_error;
+        color: @error;
+    }
+}
