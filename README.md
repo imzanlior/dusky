@@ -5,7 +5,7 @@ I'm currently overwhelmed with messages, emails, and comments. i'll get to every
 
 [discord]: https://discord.gg/Nv2a7yTBQS
 
-## Updated demo video now out on YouTube with all major features covered!
+## Updated demo video now out on YouTube with all major features covered! (since this video around 5 major features have been added, see below for details)
 
 [Watch now][video]
 
@@ -142,7 +142,19 @@ If a script fails (which can happen on a rolling release distro):
 
 ## overview
 
+Note : i've purposely decided to not use quickshell for anything in the interest of keeping this as light weight as possible, Quickshell can quickly add to ram and slow down your system, therefore everything is user friendly Tui to keep it snappy and lightweight while delivering on A WHOLE HOST OF FEATURES. Read below for most features.
+
 **utilities**
+
+- Music Recognition - allows you to look up what music is playing. 
+
+- Circle to search type feature. uses Google lens. 
+
+- Tui for chaining your hyprland's appearience like gaps, shadow color, blur strength, opacity strength and a lottt more!!
+
+- Ai llm local infrense using ollama side bar (terminal, incredilby resource efficient)
+
+- Easily switch Swaync's side to either lift or right.
 
 - airmon wifi script for wifi testing/password cracking
     (only use on access points that you own, i'm not legally responsible if you use it for nefarious purposes)
