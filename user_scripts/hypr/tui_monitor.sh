@@ -1,27 +1,43 @@
 #!/usr/bin/env bash
+#
+# HyprMonitorWizard v5.6 — Fixed Logic for Command Substitution
+#
 set -euo pipefail
+shopt -s extglob
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# GLOBALS & INITIALIZATION
+# ═══════════════════════════════════════════════════════════════════════════════
 
 declare -a TEMP_FILES=()
+
 cleanup() {
     local f
-    for f in "${TEMP_FILES[@]+"${TEMP_FILES[@]}"}"; do
-        [[ -f "$f" ]] && rm -f "$f"
+    for f in "${TEMP_FILES[@]}"; do
+        [[ -f "$f" ]] && rm -f -- "$f"
     done
 }
 trap cleanup EXIT
 
-CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/hypr"
-BACKUP_DIR="/tmp/hypr-wizard-backups"
+readonly CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/edit_here"
+readonly BACKUP_DIR="/tmp/hypr-wizard-backups"
 CONFIG_FILE="${CONFIG_DIR}/monitors.conf"
 [[ -f "${CONFIG_DIR}/source/monitors.conf" ]] && CONFIG_FILE="${CONFIG_DIR}/source/monitors.conf"
 
-C_R=$'\e[0m' C_RED=$'\e[31m' C_GRN=$'\e[32m' C_YLW=$'\e[33m'
-C_BLU=$'\e[34m' C_CYN=$'\e[36m' C_BLD=$'\e[1m' C_DIM=$'\e[2m'
+# ANSI color codes
+readonly C_R=$'\e[0m' C_RED=$'\e[31m' C_GRN=$'\e[32m' C_YLW=$'\e[33m'
+readonly C_BLU=$'\e[34m' C_CYN=$'\e[36m' C_BLD=$'\e[1m' C_DIM=$'\e[2m'
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# UTILITY FUNCTIONS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# CRITICAL FIX: All UI/Logging must go to stderr (>&2) to avoid polluting
+# variable captures like $(get_position)
 die()  { printf '%s[✖] %s%s\n' "$C_RED" "$1" "$C_R" >&2; exit 1; }
-info() { printf '%s[i] %s%s\n' "$C_BLU" "$1" "$C_R"; }
-ok()   { printf '%s[✔] %s%s\n' "$C_GRN" "$1" "$C_R"; }
-warn() { printf '%s[!] %s%s\n' "$C_YLW" "$1" "$C_R"; }
+info() { printf '%s[i] %s%s\n' "$C_BLU" "$1" "$C_R" >&2; }
+ok()   { printf '%s[✔] %s%s\n' "$C_GRN" "$1" "$C_R" >&2; }
+warn() { printf '%s[!] %s%s\n' "$C_YLW" "$1" "$C_R" >&2; }
 
 drain_input() {
     while IFS= read -r -t 0.05 -n 1 2>/dev/null; do :; done
@@ -30,13 +46,18 @@ drain_input() {
 check_deps() {
     [[ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] && die "Hyprland not running"
     command -v jq &>/dev/null || die "jq required: sudo pacman -S jq"
-    command -v bc &>/dev/null || die "bc required: sudo pacman -S bc"
-    mkdir -p "$BACKUP_DIR"
-    [[ -f "$CONFIG_FILE" ]] || { mkdir -p "$(dirname "$CONFIG_FILE")"; touch "$CONFIG_FILE"; }
+    command -v awk &>/dev/null || die "awk required" 
+    mkdir -p -- "$BACKUP_DIR"
+    [[ -f "$CONFIG_FILE" ]] || { mkdir -p -- "$(dirname "$CONFIG_FILE")"; : > "$CONFIG_FILE"; }
 }
 
-get_monitors_json() { hyprctl monitors all -j 2>/dev/null || echo "[]"; }
-get_active_json() { hyprctl monitors -j 2>/dev/null || echo "[]"; }
+get_monitors_json() {
+    hyprctl monitors all -j 2>/dev/null || printf '[]\n'
+}
+
+get_active_json() {
+    hyprctl monitors -j 2>/dev/null || printf '[]\n'
+}
 
 get_field() {
     local name="$1" field="$2"
@@ -45,24 +66,32 @@ get_field() {
 }
 
 escape_regex() {
-    printf '%s' "$1" | sed 's/[][\\.^$*]/\\&/g'
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\[/\\[}"
+    s="${s//\]/\\]}"
+    s="${s//./\\.}"
+    s="${s//^/\\^}"
+    s="${s//\$/\\$}"
+    s="${s//\*/\\*}"
+    printf '%s' "$s"
 }
 
 menu() {
     local prompt="$1"; shift
     local -a opts=("$@")
-    local input
+    local input i
     
     drain_input
     
-    echo
-    printf '%s%s%s\n' "$C_BLD" "$prompt" "$C_R"
+    # CRITICAL FIX: Print menu to stderr >&2
+    printf '\n%s%s%s\n' "$C_BLD" "$prompt" "$C_R" >&2
     for i in "${!opts[@]}"; do
-        printf '  %s[%d]%s %s\n' "$C_CYN" "$((i+1))" "$C_R" "${opts[i]}"
+        printf '  %s[%d]%s %s\n' "$C_CYN" "$((i+1))" "$C_R" "${opts[i]}" >&2
     done
     
     while :; do
-        read -rp "> " input || input=""
+        IFS= read -rp "> " input || input=""
         input="${input#"${input%%[![:space:]]*}"}"
         input="${input%"${input##*[![:space:]]}"}"
         
@@ -72,23 +101,28 @@ menu() {
             REPLY="$input"
             return 0
         fi
-        printf '%sEnter 1-%d%s\n' "$C_RED" "${#opts[@]}" "$C_R"
+        # CRITICAL FIX: Print error to stderr >&2
+        printf '%sEnter 1-%d%s\n' "$C_RED" "${#opts[@]}" "$C_R" >&2
     done
 }
 
 confirm() {
     local msg="${1:-Continue?}" reply
-    read -rp "$msg [y/N]: " reply || reply=""
-    [[ "${reply,,}" == y?(es) ]]
+    IFS= read -rp "$msg [y/N]: " reply || reply=""
+    [[ "${reply,,}" == y || "${reply,,}" == yes ]]
 }
 
 pause() {
     local dummy
-    read -rp "Press Enter to continue..." dummy || true
+    IFS= read -rp "Press Enter to continue..." dummy || true
 }
 
 backup_config() {
-    [[ -s "$CONFIG_FILE" ]] && cp -- "$CONFIG_FILE" "$BACKUP_DIR/monitors.$(date +%s).bak"
+    if [[ -s "$CONFIG_FILE" ]]; then
+        local ts
+        printf -v ts '%(%s)T' -1
+        cp -- "$CONFIG_FILE" "$BACKUP_DIR/monitors.${ts}.bak"
+    fi
 }
 
 save_rule() {
@@ -108,7 +142,7 @@ save_rule() {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# MISC BLOCK HANDLING (VFR/VRR Global Settings)
+# GLOBAL SETTINGS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 get_misc_option() {
@@ -130,20 +164,17 @@ save_misc_option() {
     TEMP_FILES+=("$tmp")
     
     if grep -q "^[[:space:]]*misc[[:space:]]*{" "$CONFIG_FILE" 2>/dev/null; then
-        # Misc block exists - update or add the option inside it
         while IFS= read -r line || [[ -n "$line" ]]; do
             if [[ "$line" =~ ^[[:space:]]*misc[[:space:]]*\{ ]]; then
                 in_misc=1
                 printf '%s\n' "$line"
             elif (( in_misc )) && [[ "$line" =~ ^[[:space:]]*\} ]]; then
-                # Closing brace of misc block
                 if (( !found )); then
                     printf '    %s = %s\n' "$option" "$value"
                 fi
                 in_misc=0
                 printf '%s\n' "$line"
             elif (( in_misc )) && [[ "$line" =~ ^[[:space:]]*#?[[:space:]]*${option}[[:space:]]*= ]]; then
-                # Found the option (commented or not) - replace it
                 printf '    %s = %s\n' "$option" "$value"
                 found=1
             else
@@ -151,15 +182,8 @@ save_misc_option() {
             fi
         done < "$CONFIG_FILE" > "$tmp"
     else
-        # No misc block exists - copy file and append new block
         cp -- "$CONFIG_FILE" "$tmp"
-        cat >> "$tmp" << EOF
-
-# Global Display Settings
-misc {
-    $option = $value
-}
-EOF
+        printf '\n# Global Display Settings\nmisc {\n    %s = %s\n}\n' "$option" "$value" >> "$tmp"
     fi
     
     mv -- "$tmp" "$CONFIG_FILE"
@@ -178,13 +202,13 @@ toggle_vfr() {
         new_desc="Enabled (saves power)"
     fi
     
-    echo
+    printf '\n' >&2
     info "Setting VFR to: $new_desc"
     set_misc_option "vfr" "$new_val"
     sleep 0.3
     ok "VFR is now: $new_desc"
     
-    echo
+    printf '\n' >&2
     if confirm "Save to config file?"; then
         save_misc_option "vfr" "$new_val"
     else
@@ -198,9 +222,9 @@ set_global_vrr() {
     local current
     current=$(get_misc_option "vrr")
     
-    echo
-    printf '%s%sNote:%s Per-monitor VRR settings override this global setting.\n' "$C_DIM" "$C_BLD" "$C_R"
-    printf '%s      Use "Configure Monitor" for per-monitor VRR control.%s\n' "$C_DIM" "$C_R"
+    printf '\n' >&2
+    printf '%s%sNote:%s Per-monitor VRR settings override this global setting.\n' "$C_DIM" "$C_BLD" "$C_R" >&2
+    printf '%s      Use "Configure Monitor" for per-monitor VRR control.%s\n' "$C_DIM" "$C_R" >&2
     
     menu "Set Global VRR (current: $current):" \
         "Off (0) - Disable adaptive sync globally" \
@@ -219,13 +243,13 @@ set_global_vrr() {
         "Fullscreen Video/Game"
     )
     
-    echo
+    printf '\n' >&2
     info "Setting global VRR to: ${vrr_desc[$new_val]}"
     set_misc_option "vrr" "$new_val"
     sleep 0.3
     ok "Global VRR is now: ${vrr_desc[$new_val]}"
     
-    echo
+    printf '\n' >&2
     if confirm "Save to config file?"; then
         save_misc_option "vrr" "$new_val"
     else
@@ -246,7 +270,6 @@ global_settings_menu() {
         current_vfr=$(get_misc_option "vfr")
         current_vrr=$(get_misc_option "vrr")
         
-        # Format VFR status
         local vfr_status
         if (( current_vfr )); then
             vfr_status="${C_GRN}Enabled${C_R} ${C_DIM}(saves power, recommended)${C_R}"
@@ -254,7 +277,6 @@ global_settings_menu() {
             vfr_status="${C_YLW}Disabled${C_R} ${C_DIM}(constant refresh, uses more power)${C_R}"
         fi
         
-        # Format VRR status
         local vrr_status
         case $current_vrr in
             0) vrr_status="${C_DIM}Off${C_R}" ;;
@@ -303,13 +325,13 @@ apply_config() {
     info "Monitor: $name"
     info "Command: monitor=$cmd"
     info "Before: ${before_hz:-?}Hz, scale ${before_scale:-?}"
-    echo
+    printf '\n' >&2
     
     local escaped_name existing
     escaped_name=$(escape_regex "$name")
     existing=$(grep -n "^[^#]*monitor[[:space:]]*=[[:space:]]*${escaped_name}[,[:space:]]" \
         -- "$CONFIG_FILE" 2>/dev/null | head -1) || true
-    [[ -n "$existing" ]] && printf '%sReplacing: %s%s\n\n' "$C_DIM" "$existing" "$C_R"
+    [[ -n "$existing" ]] && printf '%sReplacing: %s%s\n\n' "$C_DIM" "$existing" "$C_R" >&2
     
     info "Applying now... (screen may flash)"
     
@@ -319,7 +341,7 @@ apply_config() {
     clear
     drain_input
     
-    printf '%s%s=== Configuration Applied ===%s\n\n' "$C_GRN" "$C_BLD" "$C_R"
+    printf '%s%s=== Configuration Applied ===%s\n\n' "$C_GRN" "$C_BLD" "$C_R" >&2
     
     after_hz=$(get_field "$name" "refreshRate")
     after_scale=$(get_field "$name" "scale")
@@ -333,14 +355,14 @@ apply_config() {
         warn "Settings appear unchanged"
     fi
     
-    echo
+    printf '\n' >&2
     if confirm "Keep this configuration?"; then
         save_rule "$name" "monitor=$cmd"
-        echo
+        printf '\n' >&2
         pause
         return 0
     else
-        echo
+        printf '\n' >&2
         warn "Reverting..."
         hyprctl reload >/dev/null 2>&1 || true
         sleep 1
@@ -378,14 +400,13 @@ get_position() {
     fi
     
     local ax ay aw ah ascale
-    read -r ax ay aw ah ascale < <(
+    IFS=' ' read -r ax ay aw ah ascale < <(
         printf '%s' "$json" | jq -r --arg n "$anchor" \
             '.[] | select(.name==$n) | "\(.x // 0) \(.y // 0) \(.width // 1920) \(.height // 1080) \(.scale // 1)"'
     )
     
     local law lah
-    law=$(awk -v w="$aw" -v s="$ascale" 'BEGIN { printf "%.0f", w/s }')
-    lah=$(awk -v h="$ah" -v s="$ascale" 'BEGIN { printf "%.0f", h/s }')
+    IFS=' ' read -r law lah < <(awk -v w="$aw" -v h="$ah" -v s="$ascale" 'BEGIN { printf "%.0f %.0f", w/s, h/s }')
     
     menu "Position relative to $anchor:" \
         "Right of $anchor" \
@@ -405,16 +426,17 @@ get_position() {
         5) printf '%dx%d' "$ax" "$ay" ;;
         6) 
             local pos
-            read -rp "Position (e.g. 1920x0): " pos || pos="0x0"
+            IFS= read -rp "Position (e.g. 1920x0): " pos || pos="0x0"
             printf '%s' "${pos:-0x0}"
             ;;
     esac
 }
 
 configure_monitor() {
-    local json names
+    local json
     json=$(get_monitors_json)
     
+    local -a names
     mapfile -t names < <(printf '%s' "$json" | jq -r '.[].name')
     
     if (( ${#names[@]} == 0 )); then
@@ -435,24 +457,34 @@ configure_monitor() {
     (( REPLY == ${#opts[@]} )) && return
     
     local name="${names[$((REPLY-1))]}"
-    local mon modes
+    local mon modes_raw
     mon=$(printf '%s' "$json" | jq --arg n "$name" '.[] | select(.name==$n)')
-    modes=$(printf '%s' "$mon" | jq -r '.availableModes[]?' 2>/dev/null | sort -t@ -k2 -rn | uniq) || modes=""
     
-    echo
-    printf '%sAvailable modes for %s:%s\n' "$C_CYN" "$name" "$C_R"
-    if [[ -n "$modes" ]]; then
-        printf '%s' "$modes" | nl -w2 -s') '
-        echo
+    mapfile -t modes_raw < <(printf '%s' "$mon" | jq -r '.availableModes[]?' 2>/dev/null | sort -t@ -k2 -rn -u)
+    
+    printf '\n%sAvailable modes for %s:%s\n' "$C_CYN" "$name" "$C_R"
+    if (( ${#modes_raw[@]} > 0 )); then
+        local idx=1
+        for m in "${modes_raw[@]}"; do
+            printf '%2d) %s\n' "$idx" "$m"
+            ((idx++))
+        done
+        printf '\n'
     else
-        echo "  (none reported)"
+        printf '  (none reported)\n'
     fi
     
     local max_mode low_mode
-    if [[ -n "$modes" ]]; then
-        max_mode=$(printf '%s' "$modes" | head -1)
-        low_mode=$(printf '%s' "$modes" | grep -E '@(59|60|61)\.' | head -1) || low_mode=""
-        [[ -z "$low_mode" ]] && low_mode=$(printf '%s' "$modes" | tail -1)
+    if (( ${#modes_raw[@]} > 0 )); then
+        max_mode="${modes_raw[0]}"
+        low_mode=""
+        for m in "${modes_raw[@]}"; do
+            if [[ "$m" =~ @(59|60|61)\. ]]; then
+                low_mode="$m"
+                break
+            fi
+        done
+        [[ -z "$low_mode" ]] && low_mode="${modes_raw[-1]}"
     else
         max_mode="preferred"
         low_mode="preferred"
@@ -471,7 +503,7 @@ configure_monitor() {
         2) res="$max_mode" ;;
         3) res="$low_mode" ;;
         4) 
-            read -rp "Mode (e.g. 1920x1080@144.00Hz): " res || res=""
+            IFS= read -rp "Mode (e.g. 1920x1080@144.00Hz): " res || res=""
             [[ -z "$res" ]] && res="preferred"
             ;;
         5)
@@ -503,7 +535,7 @@ configure_monitor() {
         5) scale="2" ;;
         6) scale="$cur_scale" ;;
         7) 
-            read -rp "Scale: " scale || scale=""
+            IFS= read -rp "Scale: " scale || scale=""
             [[ -z "$scale" ]] && scale="1"
             ;;
     esac
@@ -521,7 +553,7 @@ configure_monitor() {
     local cmd="$name,$res,$position,$scale"
     (( transform > 0 )) && cmd+=",transform,$transform"
     
-    echo
+    printf '\n' >&2
     if confirm "Enable per-monitor VRR for $name?"; then
         cmd+=",vrr,1"
     fi
@@ -530,33 +562,42 @@ configure_monitor() {
 }
 
 quick_toggle() {
-    local json name current_hz current_x current_y current_scale modes
+    local json name current_hz current_x current_y current_scale
     
     json=$(get_active_json)
     
-    read -r name current_hz current_x current_y current_scale < <(
+    IFS=' ' read -r name current_hz current_x current_y current_scale < <(
         printf '%s' "$json" | jq -r '.[0] | "\(.name) \(.refreshRate) \(.x) \(.y) \(.scale)"'
     )
     
-    modes=$(get_monitors_json | jq -r --arg n "$name" \
-        '.[] | select(.name==$n) | .availableModes[]?' | sort -t@ -k2 -rn) || modes=""
+    local modes_raw
+    mapfile -t modes_raw < <(get_monitors_json | jq -r --arg n "$name" \
+        '.[] | select(.name==$n) | .availableModes[]?' 2>/dev/null | sort -t@ -k2 -rn)
     
-    if [[ -z "$modes" ]]; then
+    if (( ${#modes_raw[@]} == 0 )); then
         warn "No modes available"
         pause
         return
     fi
     
     local max_mode low_mode
-    max_mode=$(printf '%s' "$modes" | head -1)
-    low_mode=$(printf '%s' "$modes" | grep -E '@(59|60|61)\.' | head -1) || low_mode=""
-    [[ -z "$low_mode" ]] && low_mode=$(printf '%s' "$modes" | tail -1)
+    max_mode="${modes_raw[0]}"
+    low_mode=""
+    for m in "${modes_raw[@]}"; do
+        if [[ "$m" =~ @(59|60|61)\. ]]; then
+            low_mode="$m"
+            break
+        fi
+    done
+    [[ -z "$low_mode" ]] && low_mode="${modes_raw[-1]}"
     
-    echo
+    printf '\n'
     info "Current: $name @ ${current_hz}Hz"
     
     local target_mode
-    if (( $(echo "$current_hz > 65" | bc -l) )); then
+    local hz_int="${current_hz%%.*}"
+    
+    if (( hz_int > 65 )); then
         target_mode="$low_mode"
         info "Switching to: Power Save (60Hz)"
     else
@@ -569,9 +610,10 @@ quick_toggle() {
 }
 
 mirror_display() {
-    local json names
+    local json
     json=$(get_monitors_json)
     
+    local -a names
     mapfile -t names < <(printf '%s' "$json" | jq -r '.[].name')
     
     if (( ${#names[@]} < 2 )); then
@@ -599,7 +641,8 @@ show_status() {
     clear
     printf '%s%s=== Monitor Status ===%s\n\n' "$C_CYN" "$C_BLD" "$C_R"
     
-    hyprctl monitors | while IFS= read -r line; do
+    local line
+    while IFS= read -r line; do
         case "$line" in
             Monitor*) printf '\n%s%s%s\n' "$C_BLD" "$line" "$C_R" ;;
             *vrr:*) 
@@ -613,7 +656,7 @@ show_status() {
             *[0-9]x[0-9]*@*) printf '%s%s%s\n' "$C_GRN" "$line" "$C_R" ;;
             *) printf '%s\n' "$line" ;;
         esac
-    done
+    done < <(hyprctl monitors)
     
     # Show global settings
     printf '\n%s%s=== Global Settings (misc) ===%s\n' "$C_CYN" "$C_BLD" "$C_R"
@@ -641,29 +684,28 @@ show_status() {
     if [[ -s "$CONFIG_FILE" ]]; then
         grep -v '^[[:space:]]*#' -- "$CONFIG_FILE" | grep -v '^[[:space:]]*$' || echo "(no active rules)"
     else
-        echo "(empty)"
+        printf '(empty)\n'
     fi
     
-    echo
+    printf '\n'
     pause
 }
 
 header() {
     clear
     printf '%s%s╔═══════════════════════════════════════╗%s\n' "$C_CYN" "$C_BLD" "$C_R"
-    printf '%s%s║       HyprMonitorWizard v5.4          ║%s\n' "$C_CYN" "$C_BLD" "$C_R"
+    printf '%s%s║       HyprMonitorWizard v5.6          ║%s\n' "$C_CYN" "$C_BLD" "$C_R"
     printf '%s%s╚═══════════════════════════════════════╝%s\n' "$C_CYN" "$C_BLD" "$C_R"
     printf '%sConfig: %s%s\n\n' "$C_DIM" "$CONFIG_FILE" "$C_R"
     
     printf '%sCurrent Monitors:%s\n' "$C_BLD" "$C_R"
-    get_active_json | jq -r '.[] | "  \(.name): \(.width)x\(.height)@\(.refreshRate)Hz (scale \(.scale))"' 2>/dev/null || echo "  (error)"
+    get_active_json | jq -r '.[] | "  \(.name): \(.width)x\(.height)@\(.refreshRate)Hz (scale \(.scale))"' 2>/dev/null || printf '  (error)\n'
     
-    # Show quick global status
     local vfr vrr
     vfr=$(get_misc_option "vfr")
     vrr=$(get_misc_option "vrr")
     printf '\n%sGlobal:%s VFR=%s VRR=%s\n' "$C_DIM" "$C_R" \
-        "$( (( vfr )) && echo "on" || echo "off" )" \
+        "$( (( vfr )) && printf "on" || printf "off" )" \
         "$vrr"
 }
 
