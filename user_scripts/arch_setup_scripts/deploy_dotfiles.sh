@@ -59,6 +59,22 @@ main() {
         exit 1
     fi
 
+    # --- SAFETY INTERLOCK START ---
+    printf "\n"
+    printf "${C_WARN}!!! CRITICAL WARNING !!!${C_RESET}\n"
+    printf "${C_WARN}This script will FORCE OVERWRITE existing configuration files in %s.${C_RESET}\n" "$HOME"
+    printf "${C_WARN}All custom changes will be lost permanently.${C_RESET}\n"
+    printf "${C_WARN}NOTE: 'Orchestra' must be rerun after this process completes to finalize setup.${C_RESET}\n"
+    printf "\n"
+    
+    read -r -p "Are you sure you want to proceed? [y/N] " response
+    if [[ ! "$response" =~ ^[yY]([eE][sS])?$ ]]; then
+        log_info "Operation aborted by user."
+        exit 0
+    fi
+    printf "\n"
+    # --- SAFETY INTERLOCK END ---
+
     log_info "Starting dotfiles bootstrap for user: $USER"
     log_info "Target Directory: $DOTFILES_DIR"
 
@@ -96,6 +112,7 @@ main() {
 
     # 4. Completion
     log_success "Setup complete. Your Hyprland/UWSM environment is ready."
+    log_info "REMINDER: Please rerun Orchestra now."
 }
 
 # Invoke main
