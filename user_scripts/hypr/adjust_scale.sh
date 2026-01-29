@@ -42,15 +42,13 @@ trim() {
 
 # --- Initialization ---
 init_config_file() {
+    # STRICTLY monitors.conf only
     if [[ -f "${CONFIG_DIR}/monitors.conf" ]]; then
         CONFIG_FILE="${CONFIG_DIR}/monitors.conf"
         log_debug "Selected config: monitors.conf"
-    elif [[ -f "${CONFIG_DIR}/monitor.conf" ]]; then
-        CONFIG_FILE="${CONFIG_DIR}/monitor.conf"
-        log_debug "Selected config: monitor.conf"
     else
-        CONFIG_FILE="${CONFIG_DIR}/monitor.conf"
-        log_debug "Creating new config: monitor.conf"
+        CONFIG_FILE="${CONFIG_DIR}/monitors.conf"
+        log_debug "Creating new config: monitors.conf"
         mkdir -p -- "${CONFIG_DIR}"
         : > "$CONFIG_FILE"
     fi
