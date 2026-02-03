@@ -1,11 +1,21 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Script: 045_mouse_button_reverse.sh
-# Purpose: Checks status and toggles mouse handedness in Hyprland
-#          Added support for --left and --right flags for autonomous mode.
+# Script: mouse_button_reverse.sh (v2.1)
+# Purpose: Toggles mouse handedness in Hyprland (Dusky TUI Enhanced)
+# Usage:   ./mouse_button_reverse.sh [ --left | --right ]
 # ==============================================================================
 
 set -euo pipefail
+
+# --- Dusky TUI Standards ---
+export LC_NUMERIC=C
+
+# Colors
+readonly C_RESET=$'\033[0m'
+readonly C_GREEN=$'\033[1;32m'
+readonly C_CYAN=$'\033[1;36m'
+readonly C_YELLOW=$'\033[1;33m'
+readonly C_RED=$'\033[1;31m'
 
 # --- Configuration ---
 readonly CONFIG_FILE="${HOME}/.config/hypr/source/input.conf"
@@ -16,109 +26,134 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# --- Main ---
+# --- Helper Functions ---
+log_success() { printf '%s[OK]%s %s\n' "$C_GREEN" "$C_RESET" "$1"; }
+log_err() { printf '%s[ERROR]%s %s\n' "$C_RED" "$C_RESET" "$1" >&2; }
+
+# --- Core Logic ---
+
 main() {
-    # Ensure file exists
+    # 1. Validation
     if [[ ! -f "$CONFIG_FILE" ]]; then
-        mkdir -p "$(dirname "$CONFIG_FILE")"
-        printf "input {\n}\n" > "$CONFIG_FILE"
+        log_err "Config file not found: $CONFIG_FILE"
+        exit 1
     fi
 
     local target_val=""
-    local prompt_action=""
-    local perform_update=false
+    local interactive_mode=true
+    local action_msg=""
 
-    # --- 1. Argument Parsing & Mode Selection ---
-    if [[ "${1:-}" == "--left" ]]; then
-        # Autonomous: Force Left
-        target_val="true"
-        prompt_action="Switch to Left-Handed"
-        perform_update=true
-    elif [[ "${1:-}" == "--right" ]]; then
-        # Autonomous: Force Right
-        target_val="false"
-        prompt_action="Switch to Right-Handed"
-        perform_update=true
-    else
-        # Interactive: Toggle based on current state
+    # 2. Argument Parsing (Flags)
+    # Allows bypassing the interactive prompt for keybinds/scripts
+    if [[ $# -gt 0 ]]; then
+        case "$1" in
+            --left)
+                target_val="true"
+                interactive_mode=false
+                action_msg="Setting Left-Handed Mode (Force)"
+                ;;
+            --right)
+                target_val="false"
+                interactive_mode=false
+                action_msg="Setting Right-Handed Mode (Force)"
+                ;;
+            *)
+                log_err "Unknown flag: $1"
+                printf "Usage: %s [ --left | --right ]\n" "$0"
+                exit 1
+                ;;
+        esac
+    fi
+
+    # 3. Detect Current State (if needed for toggle)
+    if [[ "$interactive_mode" == "true" ]]; then
+        local current_state
         
-        # Default assumption: Right-Handed (false)
-        local current_mode="Right-Handed (Standard)"
-        target_val="true"
-        prompt_action="Switch to Left-Handed (Reverse)"
+        # Robust AWK parser to find the real value inside correct block
+        current_state=$(awk '
+            BEGIN { depth = 0; in_input = 0; found_val = "" }
+            { clean = $0; sub(/#.*/, "", clean) }
+            clean ~ /^[[:space:]]*input[[:space:]]*\{/ { if (depth == 0) in_input = 1 }
+            {
+                n_open = gsub(/{/, "{", clean); n_close = gsub(/}/, "}", clean)
+                if (in_input && depth >= 0 && clean ~ /^[[:space:]]*left_handed[[:space:]]*=/) {
+                    split(clean, parts, "="); val = parts[2]
+                    gsub(/^[[:space:]]+|[[:space:]]+$/, "", val)
+                    found_val = val
+                }
+                depth += n_open - n_close
+                if (depth <= 0) { in_input = 0; depth = 0 }
+            }
+            END { print found_val }
+        ' "$CONFIG_FILE")
 
-        # regex checks for 'left_handed = true' allowing for flexible whitespace
-        if grep -qE '^[[:space:]]*left_handed[[:space:]]*=[[:space:]]*true' "$CONFIG_FILE"; then
-            current_mode="Left-Handed (Reversed)"
+        [[ -z "$current_state" ]] && current_state="false"
+
+        if [[ "$current_state" == "true" ]]; then
+            printf "\n  Current: %sLeft-Handed%s\n" "$C_GREEN" "$C_RESET"
+            printf "  Switch to %sRight-Handed%s? [Y/n]: " "$C_CYAN" "$C_RESET"
             target_val="false"
-            prompt_action="Switch to Right-Handed (Standard)"
+        else
+            printf "\n  Current: %sRight-Handed%s\n" "$C_CYAN" "$C_RESET"
+            printf "  Switch to %sLeft-Handed%s? [Y/n]: " "$C_GREEN" "$C_RESET"
+            target_val="true"
         fi
 
-        # Prompt User
-        printf "Current Status: %s\n" "$current_mode"
-        # Changed prompt to [Y/n] to indicate Yes is default
-        printf "%s? [Y/n]: " "$prompt_action"
-        
-        # Using /dev/tty ensures we read from the user even if stdin is redirected elsewhere
         read -r -n 1 user_input < /dev/tty
         printf "\n"
 
-        # Check for Y, y, OR empty string (-z checks for Enter key)
-        if [[ "$user_input" =~ ^[Yy]$ ]] || [[ -z "$user_input" ]]; then
-            perform_update=true
-        else
-            printf "No changes made.\n"
+        if [[ ! "$user_input" =~ ^[Yy]$ ]] && [[ -n "$user_input" ]]; then
+            printf "  No changes made.\n"
+            exit 0
         fi
+    else
+        printf "  %s...\n" "$action_msg"
     fi
 
-    # --- 2. Process Logic ---
-    if [[ "$perform_update" == "true" ]]; then
-        
-        # Atomic Parse & Write
-        TEMP_FILE=$(mktemp)
-        
-        awk -v target_val="$target_val" '
-        BEGIN { inside_input = 0; modified = 0 }
-        
-        # Detect start of input block
-        /^input[[:space:]]*\{/ { 
-            inside_input = 1
-            print $0
-            next 
-        }
-        
-        # Detect end of input block
-        inside_input && /^\}/ {
-            if (modified == 0) {
-                print "    left_handed = " target_val
-                modified = 1
+    # 4. Apply Changes (Atomic & Safe)
+    TEMP_FILE=$(mktemp)
+    
+    awk -v new_val="$target_val" '
+    BEGIN { depth = 0; in_input = 0 }
+    { line = $0; clean = $0; sub(/#.*/, "", clean) }
+    
+    # Enter input block
+    clean ~ /^[[:space:]]*input[[:space:]]*\{/ { if (depth == 0) in_input = 1 }
+
+    {
+        n_open = gsub(/{/, "{", clean); n_close = gsub(/}/, "}", clean)
+
+        # Only replace if inside input block (and not nested deeper in something like touchpad{})
+        # NOTE: If "touchpad" block support is needed, depth check can be adjusted.
+        if (in_input && depth >= 0 && clean ~ /^[[:space:]]*left_handed[[:space:]]*=/) {
+            if (match(line, /^([[:space:]]*left_handed[[:space:]]*=[[:space:]]*)[^#[:space:]]+(.*)$/, groups)) {
+                line = groups[1] new_val groups[2]
             }
-            inside_input = 0
-            print $0
-            next
         }
-        
-        # Detect existing key inside input block
-        inside_input && /^[[:space:]]*left_handed[[:space:]]*=/ {
-            sub(/=.*/, "= " target_val)
-            modified = 1
-            print $0
-            next
-        }
-        
-        { print }
-        ' "$CONFIG_FILE" > "$TEMP_FILE"
 
-        # Move new config into place (Atomic)
-        mv "$TEMP_FILE" "$CONFIG_FILE"
+        depth += n_open - n_close
+        if (depth <= 0) { in_input = 0; depth = 0 }
+        print line
+    }
+    ' "$CONFIG_FILE" > "$TEMP_FILE"
 
-        # Silent Reload if Hyprland is active
-        if pgrep -x "Hyprland" > /dev/null; then
-            command -v hyprctl >/dev/null && hyprctl reload > /dev/null 2>&1 || true
+    if cat "$TEMP_FILE" > "$CONFIG_FILE"; then
+        if [[ "$interactive_mode" == "true" ]]; then
+            log_success "Configuration updated."
         fi
-
-        # Output Success Message
-        printf "Success: Configuration updated to %s (left_handed = %s).\n" "${prompt_action%% *}" "$target_val"
+        
+        # Silent reload for flags, verbose for interactive
+        if pgrep -x "Hyprland" > /dev/null; then
+            if [[ "$interactive_mode" == "true" ]]; then
+                printf "  Reloading Hyprland... "
+                hyprctl reload > /dev/null 2>&1 && printf "${C_GREEN}Done.${C_RESET}\n" || printf "${C_RED}Failed.${C_RESET}\n"
+            else
+                hyprctl reload > /dev/null 2>&1
+            fi
+        fi
+    else
+        log_err "Failed to write to config file."
+        exit 1
     fi
 }
 
