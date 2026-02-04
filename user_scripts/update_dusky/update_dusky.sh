@@ -50,7 +50,7 @@ declare -A CUSTOM_SCRIPT_PATHS=(
     ["warp_toggle.sh"]="user_scripts/networking/warp_toggle.sh"
     ["waypaper_config_reset.sh"]="user_scripts/desktop_apps/waypaper_config_reset.sh"
     ["fix_theme_dir.sh"]="user_scripts/misc_extra/fix_theme_dir.sh"
-    ["copy_service_files.sh"]=user_scripts/misc_extra/copy_service_files.sh"
+    ["copy_service_files.sh"]="user_scripts/misc_extra/copy_service_files.sh"
 )
 
 # Centralized timestamp (Separate declaration for SC2155 compliance)
