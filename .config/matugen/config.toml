@@ -60,10 +60,10 @@ if command -v swaync-client >/dev/null 2>&1; then
 fi
 '''
 
-[templates.swayosd]
-input_path  = '~/.config/matugen/templates/swayosd-colors.css'
-output_path = '~/.config/matugen/generated/swayosd-colors.css'
-post_hook   = '~/user_scripts/swayosd/restart_swayosd.sh || true'
+# [templates.swayosd]
+# input_path  = '~/.config/matugen/templates/swayosd-colors.css'
+# output_path = '~/.config/matugen/generated/swayosd-colors.css'
+# post_hook   = '~/user_scripts/swayosd/restart_swayosd.sh || true'
 
 [templates.wlogout]
 input_path  = '~/.config/matugen/templates/colors.css'
@@ -139,16 +139,16 @@ ln -nfs $HOME/.config/matugen/generated/obsidian-theme.css $HOME/Documents/pensi
 # Media & System Monitor
 # -----------------------------------------------------------------------------
 
-[templates.spicetify]
-input_path  = '~/.config/matugen/templates/spotify-colors.ini'
-output_path = '~/.config/matugen/generated/spotify-colors.ini'
-post_hook   = '''
-if command -v spicetify &> /dev/null && [ -d "$HOME/.config/spicetify/Themes/Comfy" ]; then
-    ln -nfs $HOME/.config/matugen/generated/spotify-colors.ini $HOME/.config/spicetify/Themes/Comfy/color.ini;
-    spicetify apply -n;
-    hyprctl dispatch sendshortcut "CTRL SHIFT, R, class:^(spotify)$" || true;
-fi
-'''
+# [templates.spicetify]
+# input_path  = '~/.config/matugen/templates/spotify-colors.ini'
+# output_path = '~/.config/matugen/generated/spotify-colors.ini'
+# post_hook   = '''
+# if command -v spicetify &> /dev/null && [ -d "$HOME/.config/spicetify/Themes/Comfy" ]; then
+#     ln -nfs $HOME/.config/matugen/generated/spotify-colors.ini $HOME/.config/spicetify/Themes/Comfy/color.ini;
+#     spicetify apply -n;
+#     hyprctl dispatch sendshortcut "CTRL SHIFT, R, class:^(spotify)$" || true;
+# fi
+# '''
 
 [templates.cava]
 input_path  = '~/.config/matugen/templates/cava-colors.ini'
