@@ -186,20 +186,44 @@ preferencespage clamp > box {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   ACTION ROWS — Interactive List Items
+   ACTION ROWS — Grouped "Boxed List" Style
    ───────────────────────────────────────────────────────────────────────────── */
 row.action-row {
-    border-radius: 12px;
-    margin: 2px 0;
-    padding: 5px 10px;
     background-color: alpha(@card_bg_color, 0.4);
     border: 1px solid alpha(@borders, 0.35);
+    padding: 8px 12px;
     transition: background-color 150ms ease-out, border-color 150ms ease-out;
+
+    /* GROUPING LOGIC (The "Curved Group" Effect) */
+    margin: 0;                /* Remove spacing between items so they touch */
+    border-radius: 0;         /* Reset corners to square by default */
+    border-bottom-width: 0;   /* Prevent double borders between items */
 }
 
+/* Top Item: Curve top corners only */
+row.action-row:first-child {
+    border-top-left-radius: 12px;
+    border-top-right-radius: 12px;
+}
+
+/* Bottom Item: Curve bottom corners & restore bottom border */
+row.action-row:last-child {
+    border-bottom-left-radius: 12px;
+    border-bottom-right-radius: 12px;
+    border-bottom-width: 1px;
+}
+
+/* Single Item: Curve all corners */
+row.action-row:only-child {
+    border-radius: 12px;
+    border-bottom-width: 1px;
+}
+
+/* Hover Effects */
 row.action-row:hover {
     background-color: alpha(@card_bg_color, 0.7);
     border-color: alpha(@borders, 0.55);
+    z-index: 1; /* Ensure hovered border draws on top of neighbors */
 }
 
 row.action-row:active {
@@ -219,6 +243,7 @@ row.action-row:backdrop {
     border-radius: 8px;
     background: alpha(@accent_bg_color, 0.1);
     color: @accent_color;
+    margin-right: 12px;
 }
 
 row.action-row:hover .action-row-prefix-icon {
