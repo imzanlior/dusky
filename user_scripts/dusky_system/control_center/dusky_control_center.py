@@ -127,6 +127,7 @@ ICON_ERROR: Final[str] = "dialog-error-symbolic"
 ICON_EMPTY: Final[str] = "document-open-symbolic"
 ICON_WARNING: Final[str] = "dialog-warning-symbolic"
 ICON_DEFAULT: Final[str] = "application-x-executable-symbolic"
+ICON_SIDEBAR_TOGGLE: Final[str] = "sidebar-show-symbolic"
 
 
 # =============================================================================
@@ -138,6 +139,8 @@ class ItemType(StrEnum):
     TOGGLE = "toggle"
     LABEL = "label"
     SLIDER = "slider"
+    SELECTION = "selection"  # Updated
+    ENTRY = "entry"          # Updated
     NAVIGATION = "navigation"
     WARNING_BANNER = "warning_banner"
     TOGGLE_CARD = "toggle_card"
@@ -166,6 +169,9 @@ class ItemProperties(TypedDict, total=False):
     max: float
     step: float
     default: float
+    debounce: bool
+    options: list[str]
+    placeholder: str
 
 
 class ConfigItem(TypedDict, total=False):
@@ -175,6 +181,7 @@ class ConfigItem(TypedDict, total=False):
     on_press: dict[str, Any] | None
     on_toggle: dict[str, Any] | None
     on_change: dict[str, Any] | None
+    on_action: dict[str, Any] | None
     layout: list[Any]  # Recursive reference
     items: list[Any]   # For expander rows
     value: dict[str, Any] | None
@@ -254,6 +261,7 @@ class DuskyControlCenter(Adw.Application):
         "_css_provider",
         "_display",
         "_window",
+        "_split_view",
     )
 
     def __init__(self) -> None:
@@ -278,6 +286,7 @@ class DuskyControlCenter(Adw.Application):
         self._search_btn: Gtk.ToggleButton | None = None
         self._search_page: Adw.NavigationPage | None = None
         self._search_results_group: Adw.PreferencesGroup | None = None
+        self._split_view: Adw.OverlaySplitView | None = None
 
     # ─────────────────────────────────────────────────────────────────────────
     # LIFECYCLE HOOKS
@@ -472,15 +481,15 @@ class DuskyControlCenter(Adw.Application):
         # Main layout
         self._toast_overlay = Adw.ToastOverlay()
 
-        split = Adw.OverlaySplitView()
-        split.set_min_sidebar_width(SIDEBAR_MIN_WIDTH)
-        split.set_max_sidebar_width(SIDEBAR_MAX_WIDTH)
-        split.set_sidebar_width_fraction(SIDEBAR_WIDTH_FRACTION)
+        self._split_view = Adw.OverlaySplitView()
+        self._split_view.set_min_sidebar_width(SIDEBAR_MIN_WIDTH)
+        self._split_view.set_max_sidebar_width(SIDEBAR_MAX_WIDTH)
+        self._split_view.set_sidebar_width_fraction(SIDEBAR_WIDTH_FRACTION)
 
-        split.set_sidebar(self._create_sidebar())
-        split.set_content(self._create_content_panel())
+        self._split_view.set_sidebar(self._create_sidebar())
+        self._split_view.set_content(self._create_content_panel())
 
-        self._toast_overlay.set_child(split)
+        self._toast_overlay.set_child(self._split_view)
         self._window.set_content(self._toast_overlay)
 
         # Populate content based on config state
@@ -529,6 +538,18 @@ class DuskyControlCenter(Adw.Application):
                     self._deactivate_search()
                     return True
         return False
+
+    def _create_sidebar_toggle_button(self) -> Gtk.Button:
+        """Create a button to toggle the sidebar visibility/overlay."""
+        btn = Gtk.Button(icon_name=ICON_SIDEBAR_TOGGLE)
+        btn.set_tooltip_text("Toggle Sidebar")
+        btn.connect("clicked", self._on_toggle_sidebar)
+        return btn
+
+    def _on_toggle_sidebar(self, _btn: Gtk.Button) -> None:
+        """Toggle the sidebar visibility using OverlaySplitView logic."""
+        if self._split_view:
+            self._split_view.set_show_sidebar(not self._split_view.get_show_sidebar())
 
     # ─────────────────────────────────────────────────────────────────────────
     # ASYNC HOT RELOAD
@@ -675,7 +696,10 @@ class DuskyControlCenter(Adw.Application):
         self._search_page = Adw.NavigationPage(title="Search", tag="search")
 
         toolbar = Adw.ToolbarView()
-        toolbar.add_top_bar(Adw.HeaderBar())
+        header = Adw.HeaderBar()
+        # Add sidebar toggle to search page as well for consistency
+        header.pack_start(self._create_sidebar_toggle_button())
+        toolbar.add_top_bar(header)
 
         pref_page = Adw.PreferencesPage()
         self._search_results_group = Adw.PreferencesGroup(title="Search Results")
@@ -1051,7 +1075,10 @@ class DuskyControlCenter(Adw.Application):
         page = Adw.NavigationPage(title=title, tag=tag)
 
         toolbar = Adw.ToolbarView()
-        toolbar.add_top_bar(Adw.HeaderBar())
+        header = Adw.HeaderBar()
+        # Add the sidebar toggle button here
+        header.pack_start(self._create_sidebar_toggle_button())
+        toolbar.add_top_bar(header)
 
         pref_page = Adw.PreferencesPage()
         self._populate_pref_content(pref_page, layout, ctx)
@@ -1161,6 +1188,10 @@ class DuskyControlCenter(Adw.Application):
                     return rows.LabelRow(props, item.get("value"), ctx)
                 case ItemType.SLIDER:
                     return rows.SliderRow(props, item.get("on_change"), ctx)
+                case ItemType.SELECTION:
+                    return rows.SelectionRow(props, item.get("on_change"), ctx)
+                case ItemType.ENTRY:
+                    return rows.EntryRow(props, item.get("on_action"), ctx)
                 case ItemType.NAVIGATION:
                     return rows.NavigationRow(props, item.get("layout"), ctx)
                 case ItemType.EXPANDER:
