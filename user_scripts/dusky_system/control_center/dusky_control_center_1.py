@@ -17,7 +17,7 @@ Daemon & Optimization Features (Implemented):
 - RAM EFFICIENCY: Hides window on close; garbage collects to free memory.
 - DAEMON MODE: Process stays alive in background (sleeping) when window is closed.
 - KEEPALIVE: self.hold() prevents GApplication 10s service timeout.
-- INSTANT LAUNCH: UI is pre-built and realized during startup to ensure 0ms latency on activation.
+- INSTANT LAUNCH: UI is pre-built during startup to ensure 0ms latency on activation.
 """
 from __future__ import annotations
 
@@ -315,12 +315,9 @@ class DuskyControlCenter(Adw.Application):
         self._apply_css()
         self._build_ui()
         
-        # CRITICAL: Force the window to 'realize' immediately.
-        # This allocates the GDK surface and backend resources (the ~200MB RAM usage)
-        # without actually showing the window on screen (unmapped).
-        # This ensures that when do_activate calls present(), the heavy lifting is already done.
+        # Ensure window is initially hidden. It will exist in RAM, fully constructed.
+        # We only present it when the user actually requests it via do_activate.
         if self._window:
-            self._window.realize()
             self._window.set_visible(False)
 
     def do_activate(self) -> None:
