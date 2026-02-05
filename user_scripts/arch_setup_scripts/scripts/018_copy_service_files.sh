@@ -41,6 +41,10 @@ readonly SERVICES_CONFIG=(
 
     # Dusky Control Center Daemon (Default: Disable)
     "$HOME/user_scripts/dusky_system/control_center/service/dusky.service | disable"
+
+    # dusky update checker
+    "$HOME/user_scripts/update_dusky/update_checker/service/update_checker.service | disable"
+    "$HOME/user_scripts/update_dusky/update_checker/service/update_checker.timer | enable"
 )
 
 # XDG Standard: ~/.config/systemd/user
