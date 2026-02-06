@@ -199,7 +199,7 @@ pages:
         description: Force sync with Git (Overwrites local configs)
         icon: folder-download-symbolic
         style: destructive
-        button_text: "Deploy"
+        button_text: "Step 1"
       on_press:
         type: exec
         command: kitty --class deploy_dotfiles.sh --hold sh -c $HOME/user_scripts/arch_setup_scripts/deploy_dotfiles.sh
@@ -210,7 +210,7 @@ pages:
         description: Full system re-setup (Takes 5-10 mins)
         icon: preferences-system-symbolic
         style: destructive
-        button_text: "Start"
+        button_text: "Step 2"
       on_press:
         type: exec
         command: kitty --class ORCHESTRA.sh --hold sh -c $HOME/user_scripts/arch_setup_scripts/ORCHESTRA.sh
@@ -404,15 +404,74 @@ pages:
   title: Network
   icon: network-workgroup-symbolic
   layout:
+  - type: grid_section
+    properties:
+      title: Quick Network
+    items:
+    - type: toggle_card
+      properties:
+        title: Warp
+        icon: security-high-symbolic
+        key: warp_state
+      on_toggle:
+        enabled:
+          type: exec
+          command: $HOME/user_scripts/networking/warp_toggle.sh --connect
+          terminal: false
+        disabled:
+          type: exec
+          command: $HOME/user_scripts/networking/warp_toggle.sh --disconnect
+          terminal: false
+    - type: toggle_card
+      properties:
+        title: Wi-Fi Manager
+        icon: network-wireless-symbolic
+        state_command: nmcli radio wifi
+        interval: 5
+      on_toggle:
+        enabled:
+          type: exec
+          command: kitty --class wifitui --title "Wi-Fi Manager" --hold sh -c "wifitui"
+          terminal: false
+        disabled:
+          type: exec
+          command: kitty --class wifitui --title "Wi-Fi Manager" --hold sh -c "wifitui"
+          terminal: false
+    - type: toggle_card
+      properties:
+        title: Bluetooth Manager
+        icon: bluetooth-active-symbolic
+        state_command: "bluetoothctl show | grep 'Powered: yes' | awk '{print $2}'"
+        interval: 5
+      on_toggle:
+        enabled:
+          type: exec
+          command: kitty --class bluetui --title "Bluetooth Manager" --hold sh -c "bluetui"
+          terminal: false
+        disabled:
+          type: exec
+          command: kitty --class bluetui --title "Bluetooth Manager" --hold sh -c "bluetui"
+          terminal: false
+
   - type: section
     properties:
-      title: VPN & Cloudflare
+      title: Remote
       icon: ''
       description: ''
     items:
     - type: button
       properties:
-        title: Tailscale Setup
+        title: 'Step 1: Setup OpenSSH'
+        description: Configure SSH keys and service
+        icon: system-lock-screen-symbolic
+        button_text: "Setup"
+      on_press:
+        type: exec
+        command: kitty --class 02_openssh_setup.sh --hold sh -c $HOME/user_scripts/networking/02_openssh_setup.sh
+        terminal: false
+    - type: button
+      properties:
+        title: 'Step 2: Tailscale Setup'
         description: Configure mesh VPN
         icon: network-vpn-symbolic
         button_text: "Setup"
@@ -430,47 +489,13 @@ pages:
         type: exec
         command: kitty --class tailscale_uninstall --hold sh -c "$HOME/user_scripts/networking/uninstall_tailscale.sh"
         terminal: false
-    - type: toggle
-      properties:
-        title: Warp
-        icon: security-high-symbolic
-        description: Enable/Disable Cloudflare Warp
-        key: cloudflare_warp_enabled
-      on_toggle:
-        enabled:
-          type: exec
-          command: $HOME/user_scripts/networking/warp_toggle.sh --connect
-          terminal: false
-        disabled:
-          type: exec
-          command: $HOME/user_scripts/networking/warp_toggle.sh --disconnect
-          terminal: false
+
   - type: section
     properties:
-      title: Connectivity Tools
+      title: Network Audit
       icon: ''
       description: ''
     items:
-    - type: button
-      properties:
-        title: Wi-Fi Manager
-        description: Open WifiTUI
-        icon: network-wireless-symbolic
-        button_text: "Open"
-      on_press:
-        type: exec
-        command: kitty --class wifitui --title "Wi-Fi Manager" --hold sh -c "wifitui"
-        terminal: false
-    - type: button
-      properties:
-        title: Bluetooth Manager
-        description: Open BlueTUI
-        icon: bluetooth-active-symbolic
-        button_text: "Open"
-      on_press:
-        type: exec
-        command: kitty --class bluetui --title "Bluetooth Manager" --hold sh -c "bluetui"
-        terminal: false
     - type: button
       properties:
         title: Network Scan (ARP)
@@ -483,13 +508,13 @@ pages:
         terminal: false
     - type: button
       properties:
-        title: Setup OpenSSH
-        description: Configure SSH keys and service
-        icon: system-lock-screen-symbolic
+        title: Airmon-ng Setup
+        description: Enable monitor mode on wireless interface
+        icon: network-wireless-hotspot-symbolic
         button_text: "Setup"
       on_press:
         type: exec
-        command: kitty --class 02_openssh_setup.sh --hold sh -c $HOME/user_scripts/networking/02_openssh_setup.sh
+        command: kitty --class ax201_wifi_testing.sh --hold sh -c ~/user_scripts/networking/ax201_wifi_testing.sh
         terminal: false
 
 - id: hardware
